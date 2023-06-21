@@ -1,0 +1,27 @@
+auth:
+  credentials:
+    usernames:
+      username:
+        email:
+        name:
+        password:
+  cookie:
+    expiry_days: 1
+    key: genai_qa_signature
+    name: session_token
+  enable: False
+aws:
+  aws_access_key_id:
+  aws_secret_access_key:
+  aws_region: us-east-1
+backend:
+  function_name: Backend-GenAIApp
+embeddings:
+  - GPT-J
+llms:
+  - Falcon 40-B
+step_functions:
+  name: PDF-Parser-Orchestrator
+s3:
+  bucket_name:
+  path: gen-ai-qa/data/tmp

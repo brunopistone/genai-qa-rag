@@ -1,0 +1,9 @@
+amazon-textract-response-parser
+amazon-textract-textractor
+boto3
+langchain==0.0.189
+PyYAML
+pdf2image
+requests
+tiktoken
+tqdm

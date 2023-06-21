@@ -1,0 +1,23 @@
+auth:
+  credentials:
+    usernames:
+      username:
+        email:
+        name:
+        password:
+  cookie:
+    expiry_days: 1
+    key: genai_qa_signature
+    name: session_token_test
+  enable: False
+backend:
+  function_name: Backend-GenAIApp
+embeddings:
+  - GPT-J
+llms:
+  - Falcon 40-B
+step_functions:
+  name: PDF-Parser-Orchestrator
+s3:
+  bucket_name:
+  path: gen-ai-qa/data/tmp

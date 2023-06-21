@@ -1,0 +1,9 @@
+boto3
+langchain
+opensearch-py==2.2.0
+openapi-schema-pydantic==1.2.4
+psutil==5.9.1
+pydantic==1.10.7
+PyYaml
+typing-inspect==0.8.0
+typing_extensions==4.3.0

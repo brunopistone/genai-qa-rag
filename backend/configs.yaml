@@ -1,0 +1,23 @@
+es_credentials:
+  username:
+  password:
+  endpoint:
+  index: genai-qa
+embeddings:
+  GPT-J:
+    content_handler: GPTJHandler
+    endpoint_name: gpt-j-qa-endpoint
+llms:
+  Falcon 40-B:
+    content_handler: FalconHandler
+    endpoint_name: falcon-40b-instruct-endpoint
+    template: falcon_template
+    memory_window: 2
+    model_kwargs:
+      max_new_tokens: 1024
+      temperature: 0.2
+      top_p: 0.9
+      stopSequence:
+        - "Human:"
+      numResults: 1
+    query_results: 3

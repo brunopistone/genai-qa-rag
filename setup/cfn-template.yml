@@ -1,0 +1,1639 @@
+Description:
+  This template specifies the resources that need to be created. In this case, SageMaker Model, and SageMaker Endpoint.
+Parameters:
+  ESUsername:
+    Type: String
+    Description: Elasticsearch username
+  ESPassword:
+    Type: String
+    Description: Elasticsearch password
+  ESUrl:
+    Type: String
+    Description: Elasticsearch url
+  EndpointInstanceCountGPTJ:
+    Type: Number
+    Description: Number of instances to launch for the endpoint for GPT-J
+    Default: 1
+    MinValue: 1
+  EndpointInstanceTypeGPTJ:
+    Type: String
+    Description: The ML compute instance type for the endpoint for GPT-J
+    Default: ml.g5.2xlarge
+  EndpointNameGPTJ:
+    Type: String
+    Description: SageMaker Endpoint Name for GPT-J
+    Default: gpt-j-qa-endpoint
+  LambdaBackendConfigPath:
+    Type: String
+    Description: S3 path for backend configuration used by the lambda
+    Default: gen-ai-qa/configs/configs.yaml
+  LambdaLayerLangchainPath:
+    Type: String
+    Description: S3 path for lambdas layer artifact for langchain
+    Default: gen-ai-qa/lambda_layers/langchain/lambda_layers.zip
+  LambdaLayerPdfParserPath:
+    Type: String
+    Description: S3 path for lambdas layer artifact
+    Default: gen-ai-qa/lambda_layers/pdf-parser-layer/lambda_layers.zip
+  LambdaLayerPopplerPath:
+    Type: String
+    Description: S3 path for lambdas layer artifact
+    Default: gen-ai-qa/lambda_layers/poppler/lambda_layers.zip
+  LambdaLayerS3Bucket:
+    Type: String
+    Description: S3 bucket for the lambda layer zip
+  ModelNameGPTJ:
+    Type: String
+    Description: SageMaker Model Name for GPT-J
+    Default: gpt-j-qa
+  EndpointInstanceCountFalcon:
+    Type: Number
+    Description: Number of instances to launch for the endpoint for Falcon 40B
+    Default: 1
+    MinValue: 1
+  EndpointInstanceTypeFalcon:
+    Type: String
+    Description: The ML compute instance type for the endpoint for Falcon 40B
+    Default: ml.g5.12xlarge
+  EndpointNameFalcon:
+    Type: String
+    Description: SageMaker Endpoint Name for Falcon 40B
+    Default: falcon-40b-endpoint
+  ModelNameFalcon:
+    Type: String
+    Description: SageMaker Model Name for Falcon 40B
+    Default: falcon-40b
+
+Resources:
+
+  ## IAM Roles
+  LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/AmazonTextractFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/AWSLambda_FullAccess
+        - arn:aws:iam::aws:policy/AWSStepFunctionsFullAccess
+
+  SageMakerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+
+  StateMachineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - states.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/CloudWatchFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AWSLambda_FullAccess
+
+  ## SageMaker
+  ModelGPTJ:
+    Type: AWS::SageMaker::Model
+    Properties:
+      EnableNetworkIsolation: False
+      ExecutionRoleArn: !GetAtt SageMakerRole.Arn
+      ModelName: !Ref ModelNameGPTJ
+      PrimaryContainer:
+        Mode: SingleModel
+        Image: !Sub "763104351884.dkr.ecr.${AWS::Region}.amazonaws.com/pytorch-inference:1.12.0-gpu-py38"
+        ModelDataUrl: !Sub "s3://jumpstart-cache-prod-${AWS::Region}/huggingface-infer/prepack/v1.0.0/infer-prepack-huggingface-textembedding-gpt-j-6b-fp16.tar.gz"
+
+  ModelFalcon:
+    Type: AWS::SageMaker::Model
+    Properties:
+      EnableNetworkIsolation: True
+      ExecutionRoleArn: !GetAtt SageMakerRole.Arn
+      ModelName: !Ref ModelNameFalcon
+      PrimaryContainer:
+        Mode: SingleModel
+        Image: !Sub "763104351884.dkr.ecr.${AWS::Region}.amazonaws.com/huggingface-pytorch-tgi-inference:2.0.0-tgi0.8.2-gpu-py39-cu118-ubuntu20.04"
+        Environment:
+          HF_MODEL_ID: "tiiuae/falcon-40b-instruct"
+          SM_NUM_GPUS: "4"
+          MAX_INPUT_LENGTH: "1536"
+          MAX_TOTAL_TOKENS: "2048"
+
+  EndpointConfigGPTJ:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      ProductionVariants:
+        - InitialInstanceCount: !Ref EndpointInstanceCountGPTJ
+          InitialVariantWeight: 1.0
+          InstanceType: !Ref EndpointInstanceTypeGPTJ
+          ModelName: !GetAtt ModelGPTJ.ModelName
+          VariantName: AllTraffic
+
+  EndpointConfigFalcon:
+    Type: AWS::SageMaker::EndpointConfig
+    Properties:
+      ProductionVariants:
+        - InitialInstanceCount: !Ref EndpointInstanceCountFalcon
+          InitialVariantWeight: 1.0
+          InstanceType: !Ref EndpointInstanceTypeFalcon
+          ModelName: !GetAtt ModelFalcon.ModelName
+          VariantName: AllTraffic
+          ModelDataDownloadTimeoutInSeconds: 3600
+          ContainerStartupHealthCheckTimeoutInSeconds: 600
+
+  EndpointGPTJ:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Ref EndpointNameGPTJ
+      EndpointConfigName: !GetAtt EndpointConfigGPTJ.EndpointConfigName
+
+  EndpointFalcon:
+    Type: AWS::SageMaker::Endpoint
+    Properties:
+      EndpointName: !Ref EndpointNameFalcon
+      EndpointConfigName: !GetAtt EndpointConfigFalcon.EndpointConfigName
+
+  ## Lambda Layers
+  LambdaLayerLangchain:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: langchain
+      Description: Layer with modules for parsing PDF library
+      CompatibleRuntimes:
+        - python3.8
+      Content:
+        S3Bucket: !Ref LambdaLayerS3Bucket
+        S3Key: !Ref LambdaLayerLangchainPath
+
+  PdfParserLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: pdf-parser-layer
+      Description: Layer with modules for parsing PDF library
+      CompatibleRuntimes:
+        - python3.8
+      Content:
+        S3Bucket: !Ref LambdaLayerS3Bucket
+        S3Key: !Ref LambdaLayerPdfParserPath
+
+  PopplerLambdaLayer:
+    Type: AWS::Lambda::LayerVersion
+    Properties:
+      LayerName: poppler
+      Description: Layer with modules for poppler
+      CompatibleRuntimes:
+        - python3.8
+      Content:
+        S3Bucket: !Ref LambdaLayerS3Bucket
+        S3Key: !Ref LambdaLayerPopplerPath
+
+  ## Lambdas
+
+  LambdaDetectDocuments:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Detect-Documents
+      Timeout: 900
+      PackageType: Zip
+      Code:
+        ZipFile: |
+          import logging
+          import traceback
+          from urllib.parse import unquote_plus
+          
+          logger = logging.getLogger(__name__)
+          if len(logging.getLogger().handlers) > 0:
+              logging.getLogger().setLevel(logging.INFO)
+          else:
+              logging.basicConfig(level=logging.INFO)
+          
+          def lambda_handler(event, context):
+              try:
+                  if "Records" in event:
+                      object_key = event["Records"][0]["s3"]["object"]["key"]
+                      object_key = unquote_plus(object_key)
+          
+                      if object_key.endswith(".pdf"):
+                          event["is_pdf"] = "true"
+                      elif object_key.endswith(".txt"):
+                          event["is_pdf"] = "false"
+                      else:
+                          raise Exception("Document type not available")
+          
+                      return event
+                  else:
+                      raise Exception("No records to process")
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaRole.Arn
+
+  LambdaTextractJob:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Textract-Job
+      Timeout: 900
+      PackageType: Zip
+      Code:
+        ZipFile: |
+          import boto3
+          import logging
+          import time
+          from textractcaller.t_call import call_textract, Textract_Features
+          import traceback
+          from urllib.parse import unquote_plus
+          
+          logger = logging.getLogger(__name__)
+          if len(logging.getLogger().handlers) > 0:
+              logging.getLogger().setLevel(logging.INFO)
+          else:
+              logging.basicConfig(level=logging.INFO)
+          
+          textract_client = boto3.client("textract")
+          
+          def start_textract_async(bucket_name, object_key):
+              try:
+                  logger.info("Start textract job")
+          
+                  if len(object_key.split("/")) == 5:
+                      output_path = "/".join(object_key.split("/")[:len(object_key.split("/")) - 3]) + "/output"
+                  else:
+                      output_path = "/".join(object_key.split("/")[:len(object_key.split("/")) - 2]) + "/output"
+          
+                  logger.info("Textract output: {}".format(output_path))
+          
+                  response = call_textract(
+                      input_document="s3://{}/{}".format(bucket_name, object_key),
+                      features = [Textract_Features.TABLES],
+                      force_async_api=True,
+                      return_job_id=True)
+          
+                  return response
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def wait_textract_job(response):
+              try:
+                  logger.info("Waiting textract job")
+          
+                  in_progress = True
+                  response_text = None
+          
+                  while in_progress:
+                      response_text = textract_client.get_document_analysis(
+                          JobId=response["JobId"]
+                      )
+          
+                      if response_text["JobStatus"] == "IN_PROGRESS":
+                          logger.info("Job {} IN PROGRESS".format(response["JobId"]))
+                          time.sleep(30)
+                      else:
+                          logger.info("Job {} ended with status {}".format(response["JobId"], response_text["JobStatus"]))
+                          break
+          
+                  logger.info("Job {} ended".format(response["JobId"]))
+          
+                  return response_text
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def lambda_handler(event, context):
+              try:
+                  logger.info(event)
+          
+                  results = {
+                      "BucketName": None,
+                      "EventType": None,
+                      "JobId": None,
+                      "JobStatus": None,
+                      "ObjectKey": None
+                  }
+          
+                  if "Records" in event:
+                      event_type = event["Records"][0]["eventName"]
+          
+                      if event_type != "ObjectRemoved:Delete":
+                          bucket_name = event["Records"][0]["s3"]["bucket"]["name"]
+                          object_key = event["Records"][0]["s3"]["object"]["key"]
+                          object_key = unquote_plus(object_key)
+          
+                          logger.info("Bucket {}".format(bucket_name))
+                          logger.info("Object {}".format(object_key))
+          
+                          response = start_textract_async(bucket_name, object_key)
+          
+                          response_text = wait_textract_job(response)
+          
+                          results["BucketName"] = bucket_name
+                          results["EventType"] = event_type
+                          results["JobId"] = response["JobId"]
+                          results["JobStatus"] = response_text["JobStatus"]
+                          results["ObjectKey"] = object_key
+          
+                      return {
+                          'statusCode': 200,
+                          'body': results
+                      }
+                  else:
+                      raise Exception("No documents to process")
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+      Layers:
+        - !Ref PdfParserLambdaLayer
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaRole.Arn
+
+  LambdaIndexDocuments:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Index-Documents
+      Timeout: 900
+      PackageType: Zip
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          from langchain.text_splitter import RecursiveCharacterTextSplitter
+          import logging
+          import os
+          from pathlib import Path
+          import re
+          import requests
+          from requests.auth import HTTPBasicAuth
+          from textractcaller.t_call import get_full_json, Textract_API
+          from tqdm import tqdm
+          from trp import Document
+          import traceback
+          
+          logger = logging.getLogger(__name__)
+          if len(logging.getLogger().handlers) > 0:
+              logging.getLogger().setLevel(logging.INFO)
+          else:
+              logging.basicConfig(level=logging.INFO)
+          
+          s3_client = boto3.client('s3')
+          sagemaker_runtime_client = boto3.client('sagemaker-runtime')
+          textract_client = boto3.client("textract")
+          
+          es_username = os.getenv("ES_USERNAME", default=None)
+          es_password = os.getenv("ES_PASSWORD", default=None)
+          es_url = os.getenv("ES_URL", default=None)
+          sagemaker_endpoint = os.getenv("SAGEMAKER_ENDPOINT", default=None)
+          
+          CHUNK_SIZE = 768
+          output_file_path = "/tmp/docs"
+          
+          def create_index(url):
+              try:
+                  print("Creating Index")
+                  mapping = {
+                      'settings': {
+                          'index': {
+                              'knn': True  # Enable k-NN search for this index
+                          }
+                      },
+                      'mappings': {
+                          'properties': {
+                              'embedding': {  # k-NN vector field
+                                  'type': 'knn_vector',
+                                  'dimension': 4096,  # Dimension of the vector
+                                  'similarity': 'cosine'
+                              },
+                              'file_name': {
+                                  'type': 'text'
+                              },
+                              'image': {
+                                  'type': 'text'
+                              },
+                              'page': {
+                                  'type': 'text'
+                              },
+                              'passage': {
+                                  'type': 'text'
+                              }
+                          }
+                      }
+                  }
+          
+                  response = requests.put(url, auth=HTTPBasicAuth(es_username, es_password), json=mapping)
+                  print(f'Index created: {response.text}')
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  print("{}".format(stacktrace))
+          
+                  raise e
+          
+          def delete_index(url):
+              try:
+                  response = requests.head(url, auth=HTTPBasicAuth(es_username, es_password))
+          
+                  if response.status_code != 404:
+                      print('Index already exists! Deleting...')
+                      response = requests.delete(url, auth=HTTPBasicAuth(es_username, es_password))
+          
+                      print(response.text)
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  print("{}".format(stacktrace))
+          
+                  raise e
+          
+          def doc_iterator(dir_path: str):
+              for root, _, filenames in os.walk(dir_path):
+                  for filename in filenames:
+                      file_path = os.path.join(root, filename)
+                      page = filename.split(".")[0].split("_")[-1]
+                      if os.path.isfile(file_path):
+                          with open(file_path, 'r') as file:
+                              file_contents = file.read()
+                              yield filename, page, file_contents
+          
+          def extract_blocks(job_id, job_status, file_path):
+              if job_status == "SUCCEEDED":
+                  blocks = get_full_json(
+                      job_id,
+                      textract_api=Textract_API.ANALYZE,
+                      boto3_textract_client=textract_client
+                  )
+          
+                  write_blocks(blocks, file_path)
+          
+          def get_chunks(file_name, object_key, file_path):
+              try:
+                  print("Get file chunks")
+                  chunks = []
+                  total_passages = 0
+          
+                  ## Create image path for S3
+                  #
+                  if len(object_key.split("/")) == 5:
+                      index_name = object_key.split("/")[3]
+                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{index_name}/{object_key.split('/')[-1]}"
+                  else:
+                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{object_key.split('/')[-1]}"
+          
+                  for doc_name, page, doc in tqdm(doc_iterator(file_path)):
+                      n_passages = 0
+          
+                      doc = re.sub(r"(\w)-\n(\w)", r"\1\2", doc)
+                      doc = re.sub(r"(?<!\n)\n(?!\n)", " ", doc)
+                      doc = re.sub(r"\n{2,}", "\n", doc)
+          
+                      text_splitter = RecursiveCharacterTextSplitter(
+                          chunk_size=CHUNK_SIZE,
+                          separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
+                          chunk_overlap=200,
+                      )
+          
+                      tmp_chunks = text_splitter.split_text(doc)
+          
+                      for i, chunk in enumerate(tmp_chunks):
+                          chunks.append({
+                              "file_name": file_name,
+                              "image": os.path.join(s3_path_pdf_images, f"page_{str(page)}.jpeg"),
+                              "page": page,
+                              "passage": chunk
+                          })
+                          n_passages += 1
+                          total_passages += 1
+          
+                      logger.info(f'Document segmented into {n_passages} passages')
+          
+                  logger.info(f'Total passages to index: {total_passages}')
+          
+                  return chunks
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def index_documents(url, chunks):
+              try:
+                  logger.info("Indexing documents")
+          
+                  i = 1
+                  for chunk in chunks:
+                      payload = {'text_inputs': [chunk["passage"]]}
+                      payload = json.dumps(payload).encode('utf-8')
+          
+                      response = sagemaker_runtime_client.invoke_endpoint(EndpointName=sagemaker_endpoint,
+                                                                   ContentType='application/json',
+                                                                   Body=payload)
+          
+                      model_predictions = json.loads(response['Body'].read())
+                      embedding = model_predictions['embedding'][0]
+          
+                      document = {
+                          'embedding': embedding,
+                          'file_name': chunk["file_name"],
+                          'image': chunk["image"],
+                          'page': chunk["page"],
+                          "passage": chunk["passage"]
+                      }
+          
+                      response = requests.post(f'{url}/_doc/{i}', auth=HTTPBasicAuth(es_username, es_password), json=document)
+                      i += 1
+          
+                      logger.info(response.text)
+          
+                      if response.status_code not in [200, 201]:
+                          logger.info(response.status_code)
+                          logger.info(response.text)
+                          break
+          
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def write_blocks(textract_resp, file_path):
+              try:
+                  doc = Document(textract_resp)
+          
+                  page_number = 1
+                  for page in doc.pages:
+                      print("Page ", page_number)
+          
+                      text = ""
+          
+                      for line in page.lines:
+                          text = text + " " + line.text
+          
+                      # Print tables
+                      for table in page.tables:
+                          text = text + "\n\n"
+                          for r, row in enumerate(table.rows):
+                              for c, cell in enumerate(row.cells):
+                                  print("Table[{}][{}] = {}".format(r, c, cell.text))
+          
+                      f = open("{}/output_{}.txt".format(file_path, page_number), "a")
+                      f.write(text)
+                      page_number += 1
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  print(stacktrace)
+          
+                  raise e
+          
+          def lambda_handler(event, context):
+              try:
+          
+                  logger.info(event)
+                  status_code = event["statusCode"]
+          
+                  results = {
+                      "BucketName": None,
+                      "EventType": None,
+                      "JobId": None,
+                      "JobStatus": None,
+                      "ObjectKey": None
+                  }
+          
+                  if status_code == 200:
+                      event_type = event["body"]["EventType"]
+          
+                      if event_type and event_type != "ObjectRemoved:Delete":
+                          if event["body"]["JobId"] is not None:
+                              logger.info("Get textract outputs")
+          
+                              bucket_name = event["body"]["BucketName"]
+                              object_key = event["body"]["ObjectKey"]
+                              job_id = event["body"]["JobId"]
+                              job_status = event["body"]["JobStatus"]
+                              file_name = object_key.split("/")[-1]
+          
+                              path = Path(os.path.join(output_file_path, job_id))
+                              path.mkdir(parents=True, exist_ok=True)
+          
+                              extract_blocks(job_id, job_status, os.path.join(output_file_path, job_id))
+          
+                              chunks = get_chunks(file_name, object_key, os.path.join(output_file_path, job_id))
+          
+                              if len(object_key.split("/")) == 5:
+                                  index_name = object_key.split("/")[3]
+                                  new_es_url = es_url + "-" + index_name
+                              else:
+                                  new_es_url = es_url
+          
+                              delete_index(new_es_url)
+          
+                              create_index(new_es_url)
+          
+                              index_documents(new_es_url, chunks)
+          
+                              results["BucketName"] = bucket_name
+                              results["EventType"] = event_type
+                              results["ObjectKey"] = object_key
+          
+                              return {
+                                  'statusCode': 200,
+                                  'body': results
+                              }
+                          else:
+                              raise Exception("No documents to index")
+                  else:
+                      return event
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+      Environment:
+        Variables:
+          ES_USERNAME: !Ref ESUsername
+          ES_PASSWORD: !Ref ESPassword
+          ES_URL: !Ref ESUrl
+          SAGEMAKER_ENDPOINT: !Ref EndpointNameGPTJ
+      Layers:
+        - !Ref PdfParserLambdaLayer
+      MemorySize: 2048
+      EphemeralStorage:
+        Size: 2048
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaRole.Arn
+
+  LambdaExtractImages:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Extract-PDF-Images
+      Timeout: 900
+      PackageType: Zip
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import logging
+          import os
+          from pdf2image import convert_from_path
+          import traceback
+          
+          logger = logging.getLogger(__name__)
+          if len(logging.getLogger().handlers) > 0:
+              logging.getLogger().setLevel(logging.INFO)
+          else:
+              logging.basicConfig(level=logging.INFO)
+          
+          s3_client = boto3.client('s3')
+          
+          def get_images(bucket_name, object_key):
+              try:
+                  local_pdf_path = "/tmp/pdf_file"
+                  output_jpeg_path = "/tmp/images"
+                  if len(object_key.split("/")) == 5:
+                      index_name = object_key.split("/")[3]
+                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{index_name}/{object_key.split('/')[-1]}"
+                  else:
+                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{object_key.split('/')[-1]}"
+          
+          
+                  if not os.path.exists(local_pdf_path):
+                      os.makedirs(local_pdf_path)
+          
+                  if not os.path.exists(output_jpeg_path):
+                      os.makedirs(output_jpeg_path)
+          
+                  local_path = os.path.join(local_pdf_path, 'temp.pdf')
+                  s3_client.download_file(bucket_name, object_key, local_path)
+          
+                  images = convert_from_path(local_path)
+          
+                  results = {}
+                  for i, image in enumerate(images):
+          
+                      # image_bytes = io.BytesIO()
+                      # image.save(image_bytes, format='JPEG')
+                      # image_bytes.seek(0)
+          
+                      image.save(os.path.join(output_jpeg_path,  f"page_{i + 1}.jpeg"), format='JPEG')
+          
+                      s3_key = f"{s3_path_pdf_images}/page_{i + 1}.jpeg"
+                      
+                      with open(os.path.join(output_jpeg_path,  f"page_{i + 1}.jpeg"), "rb") as f:
+                        s3_client.upload_fileobj(f, bucket_name, s3_key)
+          
+                      os.remove(os.path.join(output_jpeg_path,  f"page_{i + 1}.jpeg"))
+          
+                      results[str(i + 1)] = s3_key
+          
+                  print(results)
+          
+                  return results
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def lambda_handler(event, context):
+              try:
+          
+                  logger.info(event)
+                  status_code = event["statusCode"]
+          
+                  if status_code == 200:
+                      event_type = event["body"]["EventType"]
+          
+                      if event_type and event_type != "ObjectRemoved:Delete":
+                          logger.info("Extract pdf images")
+          
+                          bucket_name = event["body"]["BucketName"]
+                          object_key = event["body"]["ObjectKey"]
+          
+                          get_images(bucket_name, object_key)
+          
+                          return {
+                              'statusCode': 200,
+                              'body': json.dumps('Indexing finished')
+                          }
+                  else:
+                      return event
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+      Layers:
+        - !Ref PdfParserLambdaLayer
+        - !Ref PopplerLambdaLayer
+      MemorySize: 10240
+      EphemeralStorage:
+        Size: 5000
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaRole.Arn
+
+  LambdaIndexTxt:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Index-Txt
+      Timeout: 900
+      PackageType: Zip
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          from langchain.text_splitter import RecursiveCharacterTextSplitter
+          import logging
+          import os
+          from pathlib import Path
+          import random
+          import re
+          import requests
+          from requests.auth import HTTPBasicAuth
+          import string
+          import tiktoken
+          from tqdm import tqdm
+          import traceback
+          from urllib.parse import unquote_plus
+          
+          logger = logging.getLogger(__name__)
+          if len(logging.getLogger().handlers) > 0:
+              logging.getLogger().setLevel(logging.INFO)
+          else:
+              logging.basicConfig(level=logging.INFO)
+          
+          s3_client = boto3.client('s3')
+          sagemaker_runtime_client = boto3.client('sagemaker-runtime')
+          
+          es_username = os.getenv("ES_USERNAME", default=None)
+          es_password = os.getenv("ES_PASSWORD", default=None)
+          es_url = os.getenv("ES_URL", default=None)
+          sagemaker_endpoint = os.getenv("SAGEMAKER_ENDPOINT", default=None)
+          
+          encoding = tiktoken.get_encoding('cl100k_base')
+          CHUNK_SIZE = 768
+          CHUNK_SIZE_MIN = 20
+          output_file_path = "/tmp/docs"
+          
+          def create_index(url):
+              try:
+                  print("Creating Index")
+                  mapping = {
+                      'settings': {
+                          'index': {
+                              'knn': True  # Enable k-NN search for this index
+                          }
+                      },
+                      'mappings': {
+                          'properties': {
+                              'embedding': {  # k-NN vector field
+                                  'type': 'knn_vector',
+                                  'dimension': 4096,  # Dimension of the vector
+                                  'similarity': 'l2_norm'
+                              },
+                              'file_name': {
+                                  'type': 'text'
+                              },
+                              'page': {
+                                  'type': 'text'
+                              },
+                              'passage': {
+                                  'type': 'text'
+                              }
+                          }
+                      }
+                  }
+          
+                  response = requests.put(url, auth=HTTPBasicAuth(es_username, es_password), json=mapping)
+                  print(f'Index created: {response.text}')
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  print("{}".format(stacktrace))
+          
+                  raise e
+          
+          def delete_index(url):
+              try:
+                  response = requests.head(url, auth=HTTPBasicAuth(es_username, es_password))
+          
+                  if response.status_code != 404:
+                      print('Index already exists! Deleting...')
+                      response = requests.delete(url, auth=HTTPBasicAuth(es_username, es_password))
+          
+                      print(response.text)
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  print("{}".format(stacktrace))
+          
+                  raise e
+          
+          def doc_iterator(dir_path: str):
+              for root, _, filenames in os.walk(dir_path):
+                  for filename in filenames:
+                      file_path = os.path.join(root, filename)
+                      page = filename.split(".")[0].split("_")[-1]
+                      if os.path.isfile(file_path):
+                          with open(file_path, 'r') as file:
+                              file_contents = file.read()
+                              yield filename, page, file_contents
+          
+          def get_chunks(file_name, file_path):
+              try:
+                  print("Get file chunks")
+                  chunks = []
+                  total_passages = 0
+          
+                  for doc_name, page, doc in tqdm(doc_iterator(file_path)):
+                      n_passages = 0
+          
+                      doc = re.sub(r"(\w)-\n(\w)", r"\1\2", doc)
+                      doc = re.sub(r"(?<!\n)\n(?!\n)", " ", doc)
+                      doc = re.sub(r"\n{2,}", "\n", doc)
+          
+                      text_splitter = RecursiveCharacterTextSplitter(
+                          chunk_size=CHUNK_SIZE,
+                          separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
+                          chunk_overlap=200,
+                      )
+          
+                      tmp_chunks = text_splitter.split_text(doc)
+          
+                      for i, chunk in enumerate(tmp_chunks):
+                          chunks.append({
+                              "file_name": file_name,
+                              "page": page,
+                              "passage": chunk
+                          })
+                          n_passages += 1
+                          total_passages += 1
+          
+                      logger.info(f'Document segmented into {n_passages} passages')
+          
+                  logger.info(f'Total passages to index: {total_passages}')
+          
+                  return chunks
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def get_txt_file(bucket_name, object_key, file_path):
+              try:
+                  logger.info("Get txt file")
+                  response = s3_client.get_object(Bucket=bucket_name, Key=object_key)
+                  data = response['Body'].read().decode("utf-8")
+          
+                  logger.info(data)
+          
+                  f = open("{}/output_1.txt".format(file_path), "a")
+                  f.write(data)
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def index_documents(url, chunks):
+              try:
+                  logger.info("Indexing documents")
+          
+                  i = 1
+                  for chunk in chunks:
+                      payload = {'text_inputs': [chunk["passage"]]}
+                      payload = json.dumps(payload).encode('utf-8')
+          
+                      response = sagemaker_runtime_client.invoke_endpoint(EndpointName=sagemaker_endpoint,
+                                                                   ContentType='application/json',
+                                                                   Body=payload)
+          
+                      model_predictions = json.loads(response['Body'].read())
+                      embedding = model_predictions['embedding'][0]
+          
+                      document = {
+                          'embedding': embedding,
+                          'file_name': chunk["file_name"],
+                          'page': chunk["page"],
+                          "passage": chunk["passage"]
+                      }
+          
+                      response = requests.post(f'{url}/_doc/{i}', auth=HTTPBasicAuth(es_username, es_password), json=document)
+                      i += 1
+          
+                      logger.info(response.text)
+          
+                      if response.status_code not in [200, 201]:
+                          logger.info(response.status_code)
+                          logger.info(response.text)
+                          break
+          
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+          
+          def lambda_handler(event, context):
+              try:
+                  logger.info(event)
+          
+                  if "Records" in event:
+                      event_type = event["Records"][0]["eventName"]
+          
+                      if event_type and event_type != "ObjectRemoved:Delete":
+                          bucket_name = event["Records"][0]["s3"]["bucket"]["name"]
+                          object_key = event["Records"][0]["s3"]["object"]["key"]
+                          object_key = unquote_plus(object_key)
+                          file_name = object_key.split("/")[-1]
+                          job_id = ''.join(random.choices(string.ascii_letters, k=15))
+          
+                          logger.info("Bucket {}".format(bucket_name))
+                          logger.info("Object {}".format(object_key))
+          
+                          path = Path(os.path.join(output_file_path, job_id))
+                          path.mkdir(parents=True, exist_ok=True)
+          
+                          get_txt_file(bucket_name, object_key, os.path.join(output_file_path, job_id))
+          
+                          chunks = get_chunks(file_name, os.path.join(output_file_path, job_id))
+          
+                          if len(object_key.split("/")) == 5:
+                              new_es_url = es_url + "-" + object_key.split("/")[3]
+                          else:
+                              new_es_url = es_url
+          
+                          delete_index(new_es_url)
+          
+                          create_index(new_es_url)
+          
+                          index_documents(new_es_url, chunks)
+          
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps('Indexing finished')
+                  }
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+      Environment:
+        Variables:
+          ES_USERNAME: !Ref ESUsername
+          ES_PASSWORD: !Ref ESPassword
+          ES_URL: !Ref ESUrl
+          SAGEMAKER_ENDPOINT: !Ref EndpointNameGPTJ
+      Layers:
+        - !Ref PdfParserLambdaLayer
+      MemorySize: 2048
+      EphemeralStorage:
+        Size: 2048
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaRole.Arn
+
+  LambdaInvokeOrchestrator:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Invoke-Orchestrator
+      Timeout: 900
+      PackageType: Zip
+      Code:
+        ZipFile: |
+          import boto3
+          import calendar
+          import json
+          import logging
+          import os
+          import re
+          import time
+          import traceback
+          from urllib.parse import unquote_plus
+          
+          logger = logging.getLogger(__name__)
+          if len(logging.getLogger().handlers) > 0:
+              logging.getLogger().setLevel(logging.INFO)
+          else:
+              logging.basicConfig(level=logging.INFO)
+          
+          step_function_client = boto3.client("stepfunctions")
+          
+          document_orchestrator_arn = os.getenv("DOCUMENT_ORCHESTRATOR_ARN", default=None)
+          
+          def lambda_handler(event, context):
+              try:
+                  if "Records" in event:
+                      object_key = event["Records"][0]["s3"]["object"]["key"]
+                      object_key = unquote_plus(object_key)
+          
+                      file_name = "".join(object_key.split("/")[3:])
+                      file_name = file_name[:68]
+          
+                      execution_name = re.sub(r'[^.a-zA-Z0-9-]', "_", file_name) + "-" + str(calendar.timegm(time.gmtime()))
+          
+                      response = step_function_client.start_execution(
+                          stateMachineArn=document_orchestrator_arn,
+                          name=execution_name,
+                          input=json.dumps(event)
+                      )
+          
+                      logger.info(response)
+          
+                      return {
+                          'statusCode': 200,
+                          'body': json.dumps("Invoked orchestrator")
+                      }
+                  else:
+                      return {
+                          'statusCode': 200,
+                          'body': json.dumps("Nothing to index")
+                      }
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  return {
+                      'statusCode': 500,
+                      'body': json.dumps(stacktrace)
+                  }
+      Environment:
+        Variables:
+          DOCUMENT_ORCHESTRATOR_ARN: !Ref StepFunctionOrchestrator
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaRole.Arn
+
+  LambdaInvokeOrchestratorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: "lambda:InvokeFunction"
+      FunctionName: !Ref LambdaInvokeOrchestrator
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref "AWS::AccountId"
+      SourceArn: 'arn:aws:s3:::*'
+
+  ## Step Functions
+  StepFunctionOrchestrator:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: PDF-Parser-Orchestrator
+      RoleArn: !GetAtt StateMachineRole.Arn
+      DefinitionString:
+        !Sub |
+        {
+          "StartAt": "Lambda Detect Documents",
+          "States": {
+            "Lambda Detect Documents": {
+              "Type": "Task",
+              "Resource": "${LambdaDetectDocuments.Arn}",
+              "OutputPath": "$",
+              "Next": "Choice document type"
+            },
+            "Choice document type": {
+              "Type": "Choice",
+              "Choices": [
+                {
+                  "Variable": "$.is_pdf",
+                  "StringEquals": "true",
+                  "Next": "Lambda Textract Job"
+                },
+                {
+                  "Variable": "$.is_pdf",
+                  "StringEquals": "false",
+                  "Next": "Lambda Index Txt"
+                }
+              ],
+              "Default": "DefaultState"
+            },
+            "Lambda Textract Job": {
+              "Type": "Task",
+              "Resource": "${LambdaTextractJob.Arn}",
+              "InputPath": "$",
+              "OutputPath": "$",
+              "Next": "Lambda Index Documents"
+            },
+            "Lambda Index Documents": {
+              "Type": "Task",
+              "Resource": "${LambdaIndexDocuments.Arn}",
+              "InputPath": "$",
+              "OutputPath": "$",
+              "Next": "Lambda Extract PDF Images"
+            },
+            "Lambda Extract PDF Images": {
+              "Type": "Task",
+              "Resource": "${LambdaExtractImages.Arn}",
+              "InputPath": "$",
+              "End": true
+            },
+            "Lambda Index Txt": {
+              "Type": "Task",
+              "Resource": "${LambdaIndexTxt.Arn}",
+              "InputPath": "$",
+              "End": true
+            },
+            "DefaultState": {
+              "Type": "Fail",
+              "Cause": "No Document Matches!"
+            }
+          }
+        }
+
+  ## S3 Bucket
+  GenAIBucket:
+    DependsOn:
+      - LambdaInvokeOrchestratorPermission
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Delete
+    Properties:
+      BucketName: !Join
+        - "-"
+        - - "awsi-genai-qa-bucket"
+          - !Select
+            - 0
+            - !Split
+              - "-"
+              - !Select
+                - 2
+                - !Split
+                  - "/"
+                  - !Ref "AWS::StackId"
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: "s3:ObjectCreated:*"
+            Function: !GetAtt LambdaInvokeOrchestrator.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: gen-ai-qa/data/tmp/
+
+  ## Lambda Backend
+
+  LambdaBackend:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: Backend-GenAIApp
+      Timeout: 900
+      PackageType: Zip
+      Code:
+        ZipFile: |
+          from __future__ import annotations
+          import boto3
+          import json
+          from langchain import SagemakerEndpoint
+          from langchain.chains import ConversationalRetrievalChain
+          from langchain.embeddings import SagemakerEndpointEmbeddings
+          from langchain.embeddings.sagemaker_endpoint import EmbeddingsContentHandler
+          from langchain.llms.sagemaker_endpoint import LLMContentHandler
+          from langchain.memory import ConversationBufferWindowMemory, ConversationSummaryMemory
+          from langchain.memory.chat_memory import BaseChatMemory
+          from langchain.memory.chat_message_histories.in_memory import ChatMessageHistory
+          from langchain.memory.summary import SummarizerMixin
+          from langchain.memory.utils import get_prompt_input_key
+          from langchain.schema import BaseChatMessageHistory, BaseRetriever, Document
+          from langchain.prompts import PromptTemplate
+          from langchain.vectorstores import OpenSearchVectorSearch
+          import logging
+          import os
+          from pydantic import Field
+          import traceback
+          from typing import Any, Dict, List, Optional, Tuple
+          import yaml
+          
+          logger = logging.getLogger(__name__)
+          if len(logging.getLogger().handlers) > 0:
+              logging.getLogger().setLevel(logging.INFO)
+          else:
+              logging.basicConfig(level=logging.INFO)
+          
+          bucket = os.getenv("s3_bucket", default=None)
+          config_file = os.getenv("genai_configs", default=None)
+          
+          s3_client = boto3.client('s3')
+          
+          falcon_template = """
+              Use the following pieces of context to answer the question at the end. You must not answer a question not related to the documents.
+              If you don't know the answer, just say "Unfortunately, I can't help you with that", don't try to make up an answer.
+              
+              {chat_history} 
+              
+              {context}
+              
+              Question: {question}
+              Detailed Answer:
+          """
+          
+          def read_configs(s3_bucket, file_path):
+              try:
+                  response = s3_client.get_object(Bucket=s3_bucket, Key=file_path)
+          
+                  config = yaml.safe_load(response["Body"])
+          
+                  return config
+              except yaml.YAMLError as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error(stacktrace)
+          
+                  return e
+          
+          class Chain:
+              def __init__(self, embedding_endpoint, llm_endpoint):
+                  self.embedding_endpoint = embedding_endpoint
+                  self.llm_endpoint = llm_endpoint
+                  self.embeddings = None
+                  self.vector_search = None
+                  self.retriever = None
+                  self.llm = None
+                  self.memory = None
+          
+              def build(self, config, history=[]):
+                  region = os.getenv("AWS_DEFAULT_REGION", "eu-west-1")
+          
+                  embedding_endpoint_name = config["embeddings"][self.embedding_endpoint]["endpoint_name"]
+                  embedding_handler = eval(config["embeddings"][self.embedding_endpoint]["content_handler"])()
+          
+                  self.embeddings = SagemakerEndpointEmbeddings(
+                      endpoint_name=embedding_endpoint_name,
+                      region_name=region,
+                      content_handler=embedding_handler
+                  )
+          
+                  self.vector_search = OpenSearchVectorSearch(
+                      opensearch_url=config["es_credentials"]["endpoint"],
+                      index_name=config["es_credentials"]["index"],
+                      embedding_function=self.embeddings,
+                      http_auth=(config["es_credentials"]["username"], config["es_credentials"]["password"])
+                  )
+          
+                  self.retriever = DocumentRetrieverExtended(
+                      self.vector_search,
+                      "embedding",
+                      "passage",
+                      k=config["llms"][self.llm_endpoint]["query_results"],
+                  )
+          
+                  llm_endpoint_name = config["llms"][self.llm_endpoint]["endpoint_name"]
+                  llm_handler = eval(config["llms"][self.llm_endpoint]["content_handler"])()
+                  llm_model_kwargs = config["llms"][self.llm_endpoint]["model_kwargs"]
+          
+                  self.llm = SagemakerEndpoint(
+                      endpoint_name=llm_endpoint_name,
+                      region_name=region,
+                      model_kwargs=llm_model_kwargs,
+                      content_handler=llm_handler
+                  )
+          
+                  self.memory = ConversationBufferWindowMemoryExtended(
+                      k=config["llms"][self.llm_endpoint]["memory_window"],
+                      chat_memory=history,
+                      memory_key="chat_history",
+                      return_messages=True)
+          
+          class ChatbotChain(Chain):
+              def __init__(self, embedding_endpoint, llm_endpoint):
+                  logger.info("Building ChatbotChain")
+          
+                  super().__init__(embedding_endpoint, llm_endpoint)
+                  self.replace_strings = [
+                      {
+                          "key": "The AI keeps the answer conversational and provides lots of specific details from its context.",
+                          "value": "The AI keeps the answer conversational and provides lots of specific details from its context. Please keep the answer in 50 words or less."
+                      },
+                      {
+          
+                          "key": "Use the following pieces of context to answer the question at the end.",
+                          "value": "Use the following pieces of context to answer the question at the end. Please keep the answer in 50 words or less."
+                      }
+                  ]
+          
+              def build(self, config, history=[]):
+                  super().build(config, history)
+          
+                  prompt_template = eval(config["llms"][self.llm_endpoint]["template"])
+          
+                  for item in self.replace_strings:
+                      prompt_template = prompt_template.replace(item["key"], item["value"])
+          
+                  PROMPT = PromptTemplate(
+                      template=prompt_template, input_variables=["context", "question", "chat_history"]
+                  )
+          
+                  qa = ConversationalRetrievalChain.from_llm(
+                      llm=self.llm,
+                      retriever=self.retriever,
+                      combine_docs_chain_kwargs={"prompt": PROMPT},
+                      return_source_documents=True,
+                      memory=self.memory
+                  )
+          
+                  return qa
+          
+          class ChatQAChain(Chain):
+              def __init__(self, embedding_endpoint, llm_endpoint):
+                  logger.info("Building ChatQAChain")
+          
+                  super().__init__(embedding_endpoint, llm_endpoint)
+          
+              def build(self, config, history=[]):
+                  super().build(config, history)
+          
+                  prompt_template = eval(config["llms"][self.llm_endpoint]["template"])
+          
+                  PROMPT = PromptTemplate(
+                      template=prompt_template, input_variables=["context", "question", "chat_history"]
+                  )
+          
+                  qa = ConversationalRetrievalChain.from_llm(
+                      llm=self.llm,
+                      retriever=self.retriever,
+                      combine_docs_chain_kwargs={"prompt": PROMPT},
+                      return_source_documents=True,
+                      verbose=True,
+                      memory=self.memory
+                  )
+          
+                  return qa
+          
+          class SearchQAChain(Chain):
+              def __init__(self, embedding_endpoint, llm_endpoint):
+                  logger.info("Building SearchQAChain")
+          
+                  super().__init__(embedding_endpoint, llm_endpoint)
+          
+              def build(self, config, history=[]):
+                  super().build(config, history)
+          
+                  prompt_template = eval(config["llms"][self.llm_endpoint]["template"])
+          
+                  PROMPT = PromptTemplate(
+                      template=prompt_template, input_variables=["context", "question"]
+                  )
+          
+                  qa = ConversationalRetrievalChain.from_llm(
+                      llm=self.llm,
+                      retriever=self.retriever,
+                      combine_docs_chain_kwargs={"prompt": PROMPT},
+                      return_source_documents=True
+                  )
+          
+                  return qa
+          
+          class BaseChatMemoryExtended(BaseChatMemory):
+          
+              def _get_input_output(
+                  self, inputs: Dict[str, Any], outputs: Dict[str, str]
+              ) -> Tuple[str, str]:
+                  if self.input_key is None:
+                      prompt_input_key = get_prompt_input_key(inputs, self.memory_variables)
+                  else:
+                      prompt_input_key = self.input_key
+                  if self.output_key is None:
+                      if len(outputs) != 1:
+                          if not "answer" in outputs.keys():
+                              raise ValueError(f"One output key expected, got {outputs.keys()}")
+                      output_key = "answer"
+                  else:
+                      output_key = self.output_key
+                  return inputs[prompt_input_key], outputs[output_key]
+          
+              chat_memory: BaseChatMessageHistory = Field(default_factory=ChatMessageHistory)
+              output_key: Optional[str] = None
+              input_key: Optional[str] = None
+              return_messages: bool = False
+          
+          class ConversationBufferWindowMemoryExtended(ConversationBufferWindowMemory, BaseChatMemoryExtended):
+              def __init__(self, *args, **kwargs):
+                  super().__init__(*args, **kwargs)
+          
+          class ConversationSummaryMemoryExtended(ConversationSummaryMemory, BaseChatMemoryExtended, SummarizerMixin):
+              def __init__(self, *args, **kwargs):
+                  super().__init__(*args, **kwargs)
+          
+          class DocumentRetrieverExtended(BaseRetriever):
+              def __init__(self, retriever, vector_field, text_field, k=3, return_source_documents=False, score_threshold=None, **kwargs):
+                  self.k = k
+                  self.vector_field = vector_field
+                  self.text_field = text_field
+                  self.return_source_documents = return_source_documents
+                  self.retriever = retriever
+                  self.filter = filter
+                  self.score_threshold = score_threshold
+                  self.kwargs = kwargs
+          
+              def get_relevant_documents(self, query: str) -> List[Document]:
+                  results = []
+          
+                  docs = self.retriever.similarity_search_with_score(query, k=self.k, vector_field=self.vector_field, text_field=self.text_field, **self.kwargs)
+          
+                  if docs:
+                      for doc in docs:
+                          metadata = doc[0].metadata
+                          metadata["score"] = doc[1]
+                          if self.score_threshold is None or \
+                                  (self.score_threshold is not None and metadata["score"] >= self.score_threshold):
+                              results.append(Document(
+                                  page_content=doc[0].page_content,
+                                  metadata=metadata
+                              ))
+          
+                  return results
+          
+              async def aget_relevant_documents(self, query: str) -> List[Document]:
+                  return await super().aget_relevant_documents(query)
+          
+          class FalconHandler(LLMContentHandler):
+              content_type = "application/json"
+              accepts = "application/json"
+          
+              def __init__(self, *args, **kwargs):
+                  super().__init__(*args, **kwargs)
+          
+              def transform_input(self, prompt: str, model_kwargs: dict) -> bytes:
+                  self.len_prompt = len(prompt)
+                  input_str = json.dumps({"inputs": prompt,
+                                          "parameters": model_kwargs})
+                  return input_str.encode('utf-8')
+          
+              def transform_output(self, output: bytes) -> str:
+                  response_json = output.read()
+                  res = json.loads(response_json)
+                  ans = res[0]['generated_text'][self.len_prompt:]
+                  ans = ans[:ans.rfind("Human")].strip()
+                  return ans
+          
+          class GPTJHandler(EmbeddingsContentHandler):
+              content_type = "application/json"
+              accepts = "application/json"
+          
+              def __init__(self, *args, **kwargs):
+                  super().__init__(*args, **kwargs)
+          
+              def transform_input(self, prompt: str, model_kwargs: dict) -> bytes:
+                  input_str = {'text_inputs': prompt, **model_kwargs}
+                  return json.dumps(input_str).encode('utf-8')
+          
+              def transform_output(self, output: bytes) -> str:
+                  results = output.read().decode("utf-8")
+                  response = json.loads(results)
+                  return response["embedding"]
+          
+          def lambda_handler(event, context):
+              try:
+          
+                  config = read_configs(bucket, config_file)
+          
+                  logger.info(event)
+          
+                  user = event["user"]
+                  question = event["question"]
+                  chat_memory = event["chat_memory"]
+                  llm_endpoint = event["llm_endpoint"]
+                  embeddings_endpoint = event["embeddings_endpoint"]
+                  selected_type = event["selected_type"]
+          
+                  history = ChatMessageHistory()
+          
+                  for message in chat_memory:
+                      history.add_user_message(message[0])
+                      history.add_ai_message(message[1])
+          
+                  if user != "":
+                      config["es_credentials"]["index"] = config["es_credentials"]["index"] + "-" + user
+          
+                  if selected_type == "Chat Q&A":
+                      chain = ChatQAChain(embeddings_endpoint, llm_endpoint)
+                  elif selected_type == "Chatbot":
+                      chain = ChatbotChain(embeddings_endpoint, llm_endpoint)
+                  else:
+                      chain = SearchQAChain(embeddings_endpoint, llm_endpoint)
+          
+                  qa = chain.build(config, history)
+          
+                  sources = []
+          
+                  answer = qa({"question": question, "chat_history": chat_memory})
+          
+                  if len(answer.get("source_documents", [])) > 0:
+                      for el in answer.get("source_documents"):
+                          sources.append({
+                              "image": el.metadata["image"] if "image" in el.metadata else "",
+                              "details": f'Document = {el.metadata["file_name"]} | Page = {el.metadata["page"]} | Score = {el.metadata["score"]}',
+                              "passage": (el.page_content[:300] + '..') if len(el.page_content) > 300 else el.page_content
+                          })
+          
+                          if len(sources) == 3:
+                              break
+          
+                  if "answer" not in answer and "text" in answer:
+                      answer["answer"] = answer["text"]
+          
+                  return {
+                      'statusCode': 200,
+                      'body': json.dumps(
+                          {
+                              "answer": answer.get("answer").strip(),
+                              "sources": sources
+                          }
+                      )
+                  }
+          
+              except Exception as e:
+                  stacktrace = traceback.format_exc()
+                  logger.error("{}".format(stacktrace))
+          
+                  raise e
+      Layers:
+        - !Ref LambdaLayerLangchain
+      Environment:
+        Variables:
+          s3_bucket: !Ref GenAIBucket
+          genai_configs: !Ref LambdaBackendConfigPath
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Runtime: python3.8
+      Role: !GetAtt LambdaRole.Arn
