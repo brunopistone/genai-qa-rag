@@ -1,4 +1,7 @@
-# AWSI Generative AI Product
+# GenAI Q&A RAG
+
+This respository implements a scalable RAG solution for a GenAI Q&A use case.
+
 
 ![](./images/example.png)
 
@@ -36,12 +39,16 @@
    11. Under "Access policy", select "Only use fine-grained access control"
 
 
-2. Put the [lambda_layers](./data_workflow/lambda_layers) zip files in an Amazon S3 bucket
-   1. [pdf-parser-layer](./data_workflow/lambda_layers/pdf-parser-layer)
-   2. [poppler](./data_workflow/lambda_layers/poppler)
-
-3. Put the [lambda layer](./backend/lambda_layers) zip files in an Amazon S3 bucket
-   1. [langchain](./backend/lambda_layers/langchain)
+2. Put the [lambda_layers](./data_workflow/lambda_layers) zip files in an Amazon S3 bucket:
+   1. Option 1:
+      1. Download the three layers from [Releases](https://github.com/brunopistone/genai-qa-rag/releases)
+      2. [Optional] Rename each file as lambda_layer.zip
+   2. Option 2:
+      1. Build two .zip files starting from the requirements.txt
+         1. [langchain](./backend/lambda_layers/langchain/requirements.txt)
+         2. [pdf-parser-layer](./data_workflow/lambda_layers/pdf-parser-layer/requirements.txt)
+      2. Download the **poppler** layer from [Releases](https://github.com/brunopistone/genai-qa-rag/releases)
+      3. [Optional] Rename each file as lambda_layer.zip
 
 4. Upload the [configs.yaml](./backend/configs.yaml) file for the Lambda backendEdit the file `configs.yaml`
    1. es_credentials: Amazon OpenSearch credentials for connecting to the ElastichSearch domain
@@ -51,6 +58,9 @@
 ## Deployment
 
 1. Deploy [cfn-template.yml](./setup/cfn-template.yml)
+   1. Check the Lambda Layer Paths are reflecting your path
+   2. Check the S3 bucket name is correct
+   3. Edit the default CFN properties as needed
 2. Edit [configs.yaml](./fargate/chat_ui/configs.yaml)
    1. aws: AWS Credentials for invoking the Lambda backend
    2. s3: Bucket info from the created Amazon S3 bucket from the point 1
