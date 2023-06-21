@@ -47,7 +47,7 @@ def render_frontend():
 
         selected_type = st.selectbox(
             "Select demo type",
-            ("Chat Q&A", "Chatbot", "Search Documents"),
+            ("Chat Q&A", "Chatbot"),
             on_change=set_session,
             args=(True, )
         )

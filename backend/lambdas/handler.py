@@ -175,30 +175,6 @@ class ChatQAChain(Chain):
 
         return qa
 
-class SearchQAChain(Chain):
-    def __init__(self, embedding_endpoint, llm_endpoint):
-        logger.info("Building SearchQAChain")
-
-        super().__init__(embedding_endpoint, llm_endpoint)
-
-    def build(self, config, history=[]):
-        super().build(config, history)
-
-        prompt_template = eval(config["llms"][self.llm_endpoint]["template"])
-
-        PROMPT = PromptTemplate(
-            template=prompt_template, input_variables=["context", "question"]
-        )
-
-        qa = ConversationalRetrievalChain.from_llm(
-            llm=self.llm,
-            retriever=self.retriever,
-            combine_docs_chain_kwargs={"prompt": PROMPT},
-            return_source_documents=True
-        )
-
-        return qa
-
 class BaseChatMemoryExtended(BaseChatMemory):
 
     def _get_input_output(
@@ -323,10 +299,8 @@ def lambda_handler(event, context):
 
         if selected_type == "Chat Q&A":
             chain = ChatQAChain(embeddings_endpoint, llm_endpoint)
-        elif selected_type == "Chatbot":
-            chain = ChatbotChain(embeddings_endpoint, llm_endpoint)
         else:
-            chain = SearchQAChain(embeddings_endpoint, llm_endpoint)
+            chain = ChatbotChain(embeddings_endpoint, llm_endpoint)
 
         qa = chain.build(config, history)
 
