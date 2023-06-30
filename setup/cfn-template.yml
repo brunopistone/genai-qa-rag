@@ -30,15 +30,11 @@ Parameters:
   LambdaLayerLangchainPath:
     Type: String
     Description: S3 path for lambdas layer artifact for langchain
-    Default: gen-ai-qa/lambda_layers/langchain/lambda_layers.zip
+    Default: gen-ai-qa/lambda_layers/langchain/lambda_layer.zip
   LambdaLayerPdfParserPath:
     Type: String
     Description: S3 path for lambdas layer artifact
-    Default: gen-ai-qa/lambda_layers/pdf-parser-layer/lambda_layers.zip
-  LambdaLayerPopplerPath:
-    Type: String
-    Description: S3 path for lambdas layer artifact
-    Default: gen-ai-qa/lambda_layers/poppler/lambda_layers.zip
+    Default: gen-ai-qa/lambda_layers/pdf-parser-layer/lambda_layer.zip
   LambdaLayerS3Bucket:
     Type: String
     Description: S3 bucket for the lambda layer zip
@@ -210,17 +206,6 @@ Resources:
       Content:
         S3Bucket: !Ref LambdaLayerS3Bucket
         S3Key: !Ref LambdaLayerPdfParserPath
-
-  PopplerLambdaLayer:
-    Type: AWS::Lambda::LayerVersion
-    Properties:
-      LayerName: poppler
-      Description: Layer with modules for poppler
-      CompatibleRuntimes:
-        - python3.8
-      Content:
-        S3Bucket: !Ref LambdaLayerS3Bucket
-        S3Key: !Ref LambdaLayerPopplerPath
 
   ## Lambdas
 
@@ -453,9 +438,6 @@ Resources:
                               'file_name': {
                                   'type': 'text'
                               },
-                              'image': {
-                                  'type': 'text'
-                              },
                               'page': {
                                   'type': 'text'
                               },
@@ -515,14 +497,6 @@ Resources:
                   chunks = []
                   total_passages = 0
           
-                  ## Create image path for S3
-                  #
-                  if len(object_key.split("/")) == 5:
-                      index_name = object_key.split("/")[3]
-                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{index_name}/{object_key.split('/')[-1]}"
-                  else:
-                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{object_key.split('/')[-1]}"
-          
                   for doc_name, page, doc in tqdm(doc_iterator(file_path)):
                       n_passages = 0
           
@@ -541,7 +515,6 @@ Resources:
                       for i, chunk in enumerate(tmp_chunks):
                           chunks.append({
                               "file_name": file_name,
-                              "image": os.path.join(s3_path_pdf_images, f"page_{str(page)}.jpeg"),
                               "page": page,
                               "passage": chunk
                           })
@@ -578,7 +551,6 @@ Resources:
                       document = {
                           'embedding': embedding,
                           'file_name': chunk["file_name"],
-                          'image': chunk["image"],
                           'page': chunk["page"],
                           "passage": chunk["passage"]
                       }
@@ -702,116 +674,6 @@ Resources:
       MemorySize: 2048
       EphemeralStorage:
         Size: 2048
-      Handler: index.lambda_handler
-      Runtime: python3.8
-      Role: !GetAtt LambdaRole.Arn
-
-  LambdaExtractImages:
-    Type: AWS::Lambda::Function
-    Properties:
-      FunctionName: Extract-PDF-Images
-      Timeout: 900
-      PackageType: Zip
-      Code:
-        ZipFile: |
-          import boto3
-          import json
-          import logging
-          import os
-          from pdf2image import convert_from_path
-          import traceback
-          
-          logger = logging.getLogger(__name__)
-          if len(logging.getLogger().handlers) > 0:
-              logging.getLogger().setLevel(logging.INFO)
-          else:
-              logging.basicConfig(level=logging.INFO)
-          
-          s3_client = boto3.client('s3')
-          
-          def get_images(bucket_name, object_key):
-              try:
-                  local_pdf_path = "/tmp/pdf_file"
-                  output_jpeg_path = "/tmp/images"
-                  if len(object_key.split("/")) == 5:
-                      index_name = object_key.split("/")[3]
-                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{index_name}/{object_key.split('/')[-1]}"
-                  else:
-                      s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{object_key.split('/')[-1]}"
-          
-          
-                  if not os.path.exists(local_pdf_path):
-                      os.makedirs(local_pdf_path)
-          
-                  if not os.path.exists(output_jpeg_path):
-                      os.makedirs(output_jpeg_path)
-          
-                  local_path = os.path.join(local_pdf_path, 'temp.pdf')
-                  s3_client.download_file(bucket_name, object_key, local_path)
-          
-                  images = convert_from_path(local_path)
-          
-                  results = {}
-                  for i, image in enumerate(images):
-          
-                      # image_bytes = io.BytesIO()
-                      # image.save(image_bytes, format='JPEG')
-                      # image_bytes.seek(0)
-          
-                      image.save(os.path.join(output_jpeg_path,  f"page_{i + 1}.jpeg"), format='JPEG')
-          
-                      s3_key = f"{s3_path_pdf_images}/page_{i + 1}.jpeg"
-                      
-                      with open(os.path.join(output_jpeg_path,  f"page_{i + 1}.jpeg"), "rb") as f:
-                        s3_client.upload_fileobj(f, bucket_name, s3_key)
-          
-                      os.remove(os.path.join(output_jpeg_path,  f"page_{i + 1}.jpeg"))
-          
-                      results[str(i + 1)] = s3_key
-          
-                  print(results)
-          
-                  return results
-              except Exception as e:
-                  stacktrace = traceback.format_exc()
-                  logger.error("{}".format(stacktrace))
-          
-                  raise e
-          
-          def lambda_handler(event, context):
-              try:
-          
-                  logger.info(event)
-                  status_code = event["statusCode"]
-          
-                  if status_code == 200:
-                      event_type = event["body"]["EventType"]
-          
-                      if event_type and event_type != "ObjectRemoved:Delete":
-                          logger.info("Extract pdf images")
-          
-                          bucket_name = event["body"]["BucketName"]
-                          object_key = event["body"]["ObjectKey"]
-          
-                          get_images(bucket_name, object_key)
-          
-                          return {
-                              'statusCode': 200,
-                              'body': json.dumps('Indexing finished')
-                          }
-                  else:
-                      return event
-              except Exception as e:
-                  stacktrace = traceback.format_exc()
-                  logger.error("{}".format(stacktrace))
-          
-                  raise e
-      Layers:
-        - !Ref PdfParserLambdaLayer
-        - !Ref PopplerLambdaLayer
-      MemorySize: 10240
-      EphemeralStorage:
-        Size: 5000
       Handler: index.lambda_handler
       Runtime: python3.8
       Role: !GetAtt LambdaRole.Arn
@@ -1200,13 +1062,6 @@ Resources:
             "Lambda Index Documents": {
               "Type": "Task",
               "Resource": "${LambdaIndexDocuments.Arn}",
-              "InputPath": "$",
-              "OutputPath": "$",
-              "Next": "Lambda Extract PDF Images"
-            },
-            "Lambda Extract PDF Images": {
-              "Type": "Task",
-              "Resource": "${LambdaExtractImages.Arn}",
               "InputPath": "$",
               "End": true
             },
@@ -1601,7 +1456,6 @@ Resources:
                   if len(answer.get("source_documents", [])) > 0:
                       for el in answer.get("source_documents"):
                           sources.append({
-                              "image": el.metadata["image"] if "image" in el.metadata else "",
                               "details": f'Document = {el.metadata["file_name"]} | Page = {el.metadata["page"]} | Score = {el.metadata["score"]}',
                               "passage": (el.page_content[:300] + '..') if len(el.page_content) > 300 else el.page_content
                           })
