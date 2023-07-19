@@ -21,7 +21,6 @@ Parameters:
   OpenSearchIndexName:
     Description: Index name
     Type: String
-    NoEcho: true
     Default: "genai-rag"
   EndpointInstanceCountGPTJ:
     Type: Number
@@ -43,11 +42,11 @@ Parameters:
   LambdaLayerLangchainPath:
     Type: String
     Description: S3 path for lambdas layer artifact for langchain
-    Default: gen-ai-qa/lambda_layers/langchain/lambda_layer.zip
+    Default: gen-ai-qa/layers/langchain/lambda_layer.zip
   LambdaLayerPdfParserPath:
     Type: String
     Description: S3 path for lambdas layer artifact
-    Default: gen-ai-qa/lambda_layers/pdf-parser-layer/lambda_layer.zip
+    Default: gen-ai-qa/layers/pdf-parser-layer/lambda_layer.zip
   LambdaLayerS3Bucket:
     Type: String
     Description: S3 bucket for the lambda layer zip
@@ -188,7 +187,7 @@ Resources:
   ModelFalcon:
     Type: AWS::SageMaker::Model
     Properties:
-      EnableNetworkIsolation: True
+      EnableNetworkIsolation: False
       ExecutionRoleArn: !GetAtt SageMakerRole.Arn
       ModelName: !Ref ModelNameFalcon
       PrimaryContainer:
