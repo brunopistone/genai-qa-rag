@@ -1,15 +1,28 @@
 Description:
   This template specifies the resources that need to be created. In this case, SageMaker Model, and SageMaker Endpoint.
 Parameters:
-  ESUsername:
+  OpenSearchDomainName:
+    Description: Name of the OpenSearch Domain
     Type: String
-    Description: Elasticsearch username
-  ESPassword:
+    Default: "genai-index"
+  OpenSearchVersion:
+    Description: Version
     Type: String
-    Description: Elasticsearch password
-  ESUrl:
+    Default: "OpenSearch_2.5"
+  OpenSearchMasterUser:
+    Description: MasterUser
     Type: String
-    Description: Elasticsearch url
+    Default: "admin"
+  OpenSearchMasterPassword:
+    Description: MasterPassword
+    Type: String
+    NoEcho: true
+    Default: "Abcd1234#"
+  OpenSearchIndexName:
+    Description: Index name
+    Type: String
+    NoEcho: true
+    Default: "genai-rag"
   EndpointInstanceCountGPTJ:
     Type: Number
     Description: Number of instances to launch for the endpoint for GPT-J
@@ -61,6 +74,43 @@ Parameters:
     Default: falcon-40b
 
 Resources:
+
+  ## OpenSearch
+  OpenSearchServiceDomain:
+    Type: 'AWS::OpenSearchService::Domain'
+    Properties:
+      DomainName: !Ref OpenSearchDomainName
+      EngineVersion: !Ref OpenSearchVersion
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+      ClusterConfig:
+        InstanceCount: 1
+        InstanceType: r6g.xlarge.search
+        DedicatedMasterEnabled: true
+        DedicatedMasterCount: 2
+        DedicatedMasterType: r6g.xlarge.search
+      EBSOptions:
+        EBSEnabled: true
+        VolumeSize: 50
+        VolumeType: gp2
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: 'es:*'
+            Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${OpenSearchDomainName}/*'
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      EncryptionAtRestOptions:
+        Enabled: true
+        KmsKeyId: 'alias/aws/es'
+      AdvancedSecurityOptions:
+        Enabled: true
+        InternalUserDatabaseEnabled: true
+        MasterUserOptions:
+          MasterUserName: !Ref OpenSearchMasterUser
+          MasterUserPassword: !Ref OpenSearchMasterPassword
 
   ## IAM Roles
   LambdaRole:
@@ -414,6 +464,7 @@ Resources:
           es_username = os.getenv("ES_USERNAME", default=None)
           es_password = os.getenv("ES_PASSWORD", default=None)
           es_url = os.getenv("ES_URL", default=None)
+          es_index_name = os.getenv("ES_INDEX_NAME", default=None)
           sagemaker_endpoint = os.getenv("SAGEMAKER_ENDPOINT", default=None)
           
           CHUNK_SIZE = 768
@@ -636,9 +687,9 @@ Resources:
           
                               if len(object_key.split("/")) == 5:
                                   index_name = object_key.split("/")[3]
-                                  new_es_url = es_url + "-" + index_name
+                                  new_es_url = es_url + "/" + es_index_name + "-" + index_name
                               else:
-                                  new_es_url = es_url
+                                  new_es_url = es_url + "/" + es_index_name
           
                               delete_index(new_es_url)
           
@@ -665,9 +716,10 @@ Resources:
                   raise e
       Environment:
         Variables:
-          ES_USERNAME: !Ref ESUsername
-          ES_PASSWORD: !Ref ESPassword
-          ES_URL: !Ref ESUrl
+          ES_USERNAME: !Ref OpenSearchMasterUser
+          ES_PASSWORD: !Ref OpenSearchMasterPassword
+          ES_URL: !GetAtt OpenSearchServiceDomain.DomainEndpoint
+          ES_INDEX_NAME: !Ref OpenSearchIndexName
           SAGEMAKER_ENDPOINT: !Ref EndpointNameGPTJ
       Layers:
         - !Ref PdfParserLambdaLayer
@@ -714,6 +766,7 @@ Resources:
           es_username = os.getenv("ES_USERNAME", default=None)
           es_password = os.getenv("ES_PASSWORD", default=None)
           es_url = os.getenv("ES_URL", default=None)
+          es_index_name = os.getenv("ES_INDEX_NAME", default=None)
           sagemaker_endpoint = os.getenv("SAGEMAKER_ENDPOINT", default=None)
           
           encoding = tiktoken.get_encoding('cl100k_base')
@@ -904,9 +957,10 @@ Resources:
                           chunks = get_chunks(file_name, os.path.join(output_file_path, job_id))
           
                           if len(object_key.split("/")) == 5:
-                              new_es_url = es_url + "-" + object_key.split("/")[3]
+                              index_name = object_key.split("/")[3]
+                              new_es_url = es_url + "/" + es_index_name + "-" + index_name
                           else:
-                              new_es_url = es_url
+                              new_es_url = es_url + "/" + es_index_name
           
                           delete_index(new_es_url)
           
@@ -925,9 +979,10 @@ Resources:
                   raise e
       Environment:
         Variables:
-          ES_USERNAME: !Ref ESUsername
-          ES_PASSWORD: !Ref ESPassword
-          ES_URL: !Ref ESUrl
+          ES_USERNAME: !Ref OpenSearchMasterUser
+          ES_PASSWORD: !Ref OpenSearchMasterPassword
+          ES_URL: !GetAtt OpenSearchServiceDomain.DomainEndpoint
+          ES_INDEX_NAME: !Ref OpenSearchIndexName
           SAGEMAKER_ENDPOINT: !Ref EndpointNameGPTJ
       Layers:
         - !Ref PdfParserLambdaLayer

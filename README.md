@@ -26,22 +26,9 @@ This respository implements a scalable RAG solution for a GenAI Q&A use case.
 
 ## Prerequisites
 
-1. Create an Amazon OpenSearch cluster as follows:
-   2. Select Managed clusters
-   3. Click "Create Domain"
-   4. Select "Standard create"
-   5. Under "Templates", Select "Dev/test"
-   6. Under "Deployment Option(s)", select "Domain without standby"
-   7. Under "Engine options", select "Elasticsearch - 7.10"
-   8. Under "Network", select Public access
-   9. Under "Fine-grained access control", select "Enable fine-grained access control"
-      10. Create master user
-   11. Under "Access policy", select "Only use fine-grained access control"
-
-
-2. Put the [lambda_layers](./data_workflow/lambda_layers) zip files in an Amazon S3 bucket:
+1. Put the [lambda_layers](./data_workflow/lambda_layers) zip files in an Amazon S3 bucket:
    1. Option 1:
-      1. Download the three layers from [Releases](https://github.com/brunopistone/genai-qa-rag/releases)
+      1. Download the two layers from [Releases](https://github.com/brunopistone/genai-qa-rag/releases)
       2. [Optional] Rename each file as lambda_layer.zip
    2. Option 2:
       1. Build two .zip files starting from the requirements.txt
@@ -50,7 +37,7 @@ This respository implements a scalable RAG solution for a GenAI Q&A use case.
       2. Download the **poppler** layer from [Releases](https://github.com/brunopistone/genai-qa-rag/releases)
       3. [Optional] Rename each file as lambda_layer.zip
 
-4. Upload the [configs.yaml](./backend/configs.yaml) file for the Lambda backendEdit the file `configs.yaml`
+2. Upload the [configs.yaml](./backend/configs.yaml) file for the Lambda backendEdit the file `configs.yaml`
    1. es_credentials: Amazon OpenSearch credentials for connecting to the ElastichSearch domain
    2. embeddings: Add the SageMaker Endpoint with the Embedding models you want to use in your application
    3. llms: Add the SageMaker Endpoint with the LLMs you want to use in your application

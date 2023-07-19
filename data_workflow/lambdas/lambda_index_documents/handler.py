@@ -25,6 +25,7 @@ textract_client = boto3.client("textract")
 es_username = os.getenv("ES_USERNAME", default=None)
 es_password = os.getenv("ES_PASSWORD", default=None)
 es_url = os.getenv("ES_URL", default=None)
+es_index_name = os.getenv("ES_INDEX_NAME", default=None)
 sagemaker_endpoint = os.getenv("SAGEMAKER_ENDPOINT", default=None)
 
 CHUNK_SIZE = 768
@@ -47,9 +48,6 @@ def create_index(url):
                         'similarity': 'cosine'
                     },
                     'file_name': {
-                        'type': 'text'
-                    },
-                    'image': {
                         'type': 'text'
                     },
                     'page': {
@@ -111,14 +109,6 @@ def get_chunks(file_name, object_key, file_path):
         chunks = []
         total_passages = 0
 
-        ## Create image path for S3
-        #
-        if len(object_key.split("/")) == 5:
-            index_name = object_key.split("/")[3]
-            s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{index_name}/{object_key.split('/')[-1]}"
-        else:
-            s3_path_pdf_images = f"{object_key.split('/')[0]}/{object_key.split('/')[1]}/images/{object_key.split('/')[-1]}"
-
         for doc_name, page, doc in tqdm(doc_iterator(file_path)):
             n_passages = 0
 
@@ -137,7 +127,6 @@ def get_chunks(file_name, object_key, file_path):
             for i, chunk in enumerate(tmp_chunks):
                 chunks.append({
                     "file_name": file_name,
-                    "image": os.path.join(s3_path_pdf_images, f"page_{str(page)}.jpeg"),
                     "page": page,
                     "passage": chunk
                 })
@@ -174,7 +163,6 @@ def index_documents(url, chunks):
             document = {
                 'embedding': embedding,
                 'file_name': chunk["file_name"],
-                'image': chunk["image"],
                 'page': chunk["page"],
                 "passage": chunk["passage"]
             }
@@ -260,9 +248,9 @@ def lambda_handler(event, context):
 
                     if len(object_key.split("/")) == 5:
                         index_name = object_key.split("/")[3]
-                        new_es_url = es_url + "-" + index_name
+                        new_es_url = es_url + "/" + es_index_name + "-" + index_name
                     else:
-                        new_es_url = es_url
+                        new_es_url = es_url + "/" + es_index_name
 
                     delete_index(new_es_url)
 

@@ -26,6 +26,7 @@ sagemaker_runtime_client = boto3.client('sagemaker-runtime')
 es_username = os.getenv("ES_USERNAME", default=None)
 es_password = os.getenv("ES_PASSWORD", default=None)
 es_url = os.getenv("ES_URL", default=None)
+es_index_name = os.getenv("ES_INDEX_NAME", default=None)
 sagemaker_endpoint = os.getenv("SAGEMAKER_ENDPOINT", default=None)
 
 encoding = tiktoken.get_encoding('cl100k_base')
@@ -216,9 +217,10 @@ def lambda_handler(event, context):
                 chunks = get_chunks(file_name, os.path.join(output_file_path, job_id))
 
                 if len(object_key.split("/")) == 5:
-                    new_es_url = es_url + "-" + object_key.split("/")[3]
+                    index_name = object_key.split("/")[3]
+                    new_es_url = es_url + "/" + es_index_name + "-" + index_name
                 else:
-                    new_es_url = es_url
+                    new_es_url = es_url + "/" + es_index_name
 
                 delete_index(new_es_url)
 
