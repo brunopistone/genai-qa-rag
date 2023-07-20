@@ -56,7 +56,7 @@ def render_frontend():
 
         selected_type = st.selectbox(
             "Select demo type",
-            ("Chat Q&A", "Chatbot", "Search Documents"),
+            ("Chat Q&A", "Chatbot"),
             on_change=set_session,
             args=(True, )
         )
@@ -76,10 +76,8 @@ def render_frontend():
     #
     if selected_type == "Chat Q&A":
         page = ChatQAPage()
-    elif selected_type == "Chatbot":
-        page = ChatbotPage()
     else:
-        page = SearchQAPage()
+        page = ChatbotPage()
 
     page.render(st, config, message_container, set_session, selected_endpoint, selected_type)
 

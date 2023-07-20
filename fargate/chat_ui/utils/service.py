@@ -74,7 +74,7 @@ def get_answer(st, config, selected_type, selected_endpoint, prompt):
     sources = []
 
     payload = {
-        "user": st.session_state["username"] if st.session_state["username"] else "",
+        "user": st.session_state["username"] if "username" in st.session_state else "",
         "question": prompt,
         "chat_memory": st.session_state["history"],
         "llm_endpoint": selected_endpoint,

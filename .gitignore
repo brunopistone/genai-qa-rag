@@ -156,5 +156,5 @@ dmypy.json
 # Base data exclude
 
 */**/data/
-*/**/cdk.*
+*/**/cdk.*/
 */**/configs_*
