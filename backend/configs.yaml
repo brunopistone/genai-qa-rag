@@ -1,8 +1,8 @@
 es_credentials:
-  username:
-  password:
+  username: admin
+  password: Abcd1234#
   endpoint:
-  index: genai-qa
+  index: genai-index
 embeddings:
   GPT-J:
     content_handler: GPTJHandler
@@ -10,7 +10,7 @@ embeddings:
 llms:
   Falcon 40-B:
     content_handler: FalconHandler
-    endpoint_name: falcon-40b-instruct-endpoint
+    endpoint_name: falcon-40b-endpoint
     template: falcon_template
     memory_window: 2
     model_kwargs:

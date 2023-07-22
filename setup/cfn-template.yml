@@ -21,7 +21,7 @@ Parameters:
   OpenSearchIndexName:
     Description: Index name
     Type: String
-    Default: "genai-rag"
+    Default: "genai-index"
   EndpointInstanceCountGPTJ:
     Type: Number
     Description: Number of instances to launch for the endpoint for GPT-J
@@ -717,7 +717,10 @@ Resources:
         Variables:
           ES_USERNAME: !Ref OpenSearchMasterUser
           ES_PASSWORD: !Ref OpenSearchMasterPassword
-          ES_URL: !GetAtt OpenSearchServiceDomain.DomainEndpoint
+          ES_URL: !Join
+            - ""
+            - - "http://"
+              - !GetAtt OpenSearchServiceDomain.DomainEndpoint
           ES_INDEX_NAME: !Ref OpenSearchIndexName
           SAGEMAKER_ENDPOINT: !Ref EndpointNameGPTJ
       Layers:
@@ -981,6 +984,7 @@ Resources:
           ES_USERNAME: !Ref OpenSearchMasterUser
           ES_PASSWORD: !Ref OpenSearchMasterPassword
           ES_URL: !GetAtt OpenSearchServiceDomain.DomainEndpoint
+          #add https qui
           ES_INDEX_NAME: !Ref OpenSearchIndexName
           SAGEMAKER_ENDPOINT: !Ref EndpointNameGPTJ
       Layers:
@@ -1133,6 +1137,7 @@ Resources:
         }
 
   ## S3 Bucket
+  # Modificare qui il trigger del bucket
   GenAIBucket:
     DependsOn:
       - LambdaInvokeOrchestratorPermission
